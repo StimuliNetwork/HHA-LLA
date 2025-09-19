@@ -1,0 +1,84 @@
+// This Pine Script® code is subject to the terms of the Mozilla Public License 2.0 at https://mozilla.org/MPL/2.0/
+// © StimuliNetwork
+
+//@version=6
+indicator("HHA & LLA", overlay=true)    
+
+HHA = (ta.highest(high, 20) + ta.highest(high, 50) + ta.highest(high, 500)) / 3
+LLA = (ta.lowest(low, 20) + ta.lowest(low, 50) + ta.lowest(low, 500)) / 3
+
+plot(HHA, color=color.new(color.maroon, 0), linewidth=2, force_overlay=true)
+plot(LLA, color=color.new(color.teal, 0), linewidth=2, force_overlay=true)
+
+//--
+
+// Up & Down Trends
+
+// Input parameters
+atrPeriod = input.int(10, "ATR Length", minval = 1)
+factor = input.float(3.0, "Factor", minval = 0.01, step = 0.01)
+
+// Supertrend Calculation
+[supertrend, direction] = ta.supertrend(factor, atrPeriod)
+
+// Define uptrend and downtrend conditions
+upTrend = direction < 0
+downTrend = direction > 0
+
+// Arrays to store unique lows and highs
+var float[] uniqueLows = array.new_float()
+var float[] uniqueHighs = array.new_float()
+
+// Detect when the trend changes and reset the arrays
+var bool trendChanged = false
+trendChanged := (upTrend and not upTrend[1]) or (downTrend and not downTrend[1])
+
+if trendChanged
+    array.clear(uniqueLows)
+    array.clear(uniqueHighs)
+
+// Function to add unique values to an array
+add_unique_to_array(array<float> arr, float value) =>
+    if not array.includes(arr, value)
+        array.push(arr, value)
+
+// On uptrend, store unique lows
+if upTrend
+    add_unique_to_array(uniqueLows, low)
+
+// On downtrend, store unique highs
+if downTrend
+    add_unique_to_array(uniqueHighs, high)
+
+// Calculate the averages of the unique lows and highs
+avgLowestLows = array.size(uniqueLows) > 0 ? array.avg(uniqueLows) : na
+avgHighestHighs = array.size(uniqueHighs) > 0 ? array.avg(uniqueHighs) : na
+
+// Plot the Supertrend
+supertrendLine = plot(upTrend ? supertrend : na, "Up Trend", color=color.green, style=plot.style_linebr)
+downTrendLine = plot(downTrend ? supertrend : na, "Down Trend", color=color.red, style=plot.style_linebr)
+bodyMiddle = plot(barstate.isfirst ? na : (open + close) / 2, "Body Middle", display=display.none)
+
+// Fill background colors for uptrend and downtrend
+fill(bodyMiddle, supertrendLine, title="Uptrend Background", color=color.new(color.green, 90), fillgaps=false)
+fill(bodyMiddle, downTrendLine, title="Downtrend Background", color=color.new(color.red, 90), fillgaps=false)
+
+// Plot the averages of unique lows and highs
+plot(upTrend ? avgLowestLows : na, "Avg Unique Lows (Uptrend)", color=color.blue, linewidth=2)
+plot(downTrend ? avgHighestHighs : na, "Avg Unique Highs (Downtrend)", color=color.orange, linewidth=2)
+
+// === Display the latest count as a single label ===
+var label countLabel = na
+label.delete(countLabel)
+
+// Helper function to format float conditionally
+formatFloat(float value) =>
+    value > 1 ? str.tostring(value, "#.##") : str.tostring(value)
+
+// Build the label text using formatted values
+countText = upTrend ? "L -> " + str.tostring(array.size(uniqueLows)) + " | " + formatFloat(avgLowestLows) : downTrend ? "H -> " + str.tostring(array.size(uniqueHighs)) + " | " + formatFloat(avgHighestHighs) : ""
+
+if countText != ""
+    countLabel := label.new(x=bar_index, y=upTrend ? avgLowestLows : downTrend ? avgHighestHighs : close, text=countText, style=label.style_label_left, color=color.new(close > avgLowestLows ? color.lime : close < avgHighestHighs ? color.red : na, 100), textcolor=color.new(close > avgLowestLows ? color.lime : close < avgHighestHighs ? color.red : na, 0), size=size.tiny)
+
+//-- to God be the Glory
