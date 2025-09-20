@@ -2,83 +2,98 @@
 // © StimuliNetwork
 
 //@version=6
-indicator("HHA & LLA", overlay=true)    
+indicator("HHA & LLA", overlay=true)
 
-HHA = (ta.highest(high, 20) + ta.highest(high, 50) + ta.highest(high, 500)) / 3
-LLA = (ta.lowest(low, 20) + ta.lowest(low, 50) + ta.lowest(low, 500)) / 3
+len1 = input.int(20, "Short Lookback", minval=1)
+len2 = input.int(50, "Medium Lookback", minval=1)
+len3 = input.int(500, "Long Lookback", minval=1)
+shortWeight = input.float(0.5, "Weight Short", minval=0)
+medWeight = input.float(0.3, "Weight Medium", minval=0)
+longWeight = input.float(0.2, "Weight Long", minval=0)
 
-plot(HHA, color=color.new(color.maroon, 0), linewidth=2, force_overlay=true)
-plot(LLA, color=color.new(color.teal, 0), linewidth=2, force_overlay=true)
+atrPeriod = input.int(10, "ATR Length", minval=1)
+factor = input.float(3.0, "Factor", minval=0.01, step=0.01)
+minDistancePct = input.float(0.5, "Min % Distance for Unique Points", minval=0.01, step=0.01)
 
-//--
+HHA = (ta.highest(high, len1) * shortWeight + ta.highest(high, len2) * medWeight + ta.highest(high, len3) * longWeight) / (shortWeight + medWeight + longWeight)
+LLA = (ta.lowest(low, len1) * shortWeight + ta.lowest(low, len2) * medWeight + ta.lowest(low, len3) * longWeight) / (shortWeight + medWeight + longWeight)
 
-// Up & Down Trends
+plot(HHA, color=color.new(color.maroon, 0), linewidth=2, title="Weighted HHA")
+plot(LLA, color=color.new(color.teal, 0), linewidth=2, title="Weighted LLA")
 
-// Input parameters
-atrPeriod = input.int(10, "ATR Length", minval = 1)
-factor = input.float(3.0, "Factor", minval = 0.01, step = 0.01)
-
-// Supertrend Calculation
 [supertrend, direction] = ta.supertrend(factor, atrPeriod)
-
-// Define uptrend and downtrend conditions
 upTrend = direction < 0
 downTrend = direction > 0
 
-// Arrays to store unique lows and highs
+supertrendLine = plot(upTrend ? supertrend : na, title="Up Trend", color=color.green, style=plot.style_linebr)
+downTrendLine = plot(downTrend ? supertrend : na, title="Down Trend", color=color.red, style=plot.style_linebr)
+bodyMiddle = plot(barstate.isfirst ? na : (open + close) / 2, title="Body Middle", display=display.none)
+
+fill(bodyMiddle, supertrendLine, title="Uptrend Background", color=color.new(color.green, 90), fillgaps=false)
+fill(bodyMiddle, downTrendLine, title="Downtrend Background", color=color.new(color.red, 90), fillgaps=false)
+
 var float[] uniqueLows = array.new_float()
 var float[] uniqueHighs = array.new_float()
 
-// Detect when the trend changes and reset the arrays
-var bool trendChanged = false
-trendChanged := (upTrend and not upTrend[1]) or (downTrend and not downTrend[1])
-
+trendChanged = (upTrend and not upTrend[1]) or (downTrend and not downTrend[1])
 if trendChanged
     array.clear(uniqueLows)
     array.clear(uniqueHighs)
 
-// Function to add unique values to an array
-add_unique_to_array(array<float> arr, float value) =>
-    if not array.includes(arr, value)
+add_unique(arr, value, minPct) =>
+    if array.size(arr) == 0
         array.push(arr, value)
+    else
+        isUnique = true
+        sz = array.size(arr)
+        for i = 0 to sz - 1
+            existing = array.get(arr, i)
+            denom = math.max(math.abs(existing), 1e-10)
+            pct = math.abs((value - existing) / denom) * 100.0
+            if pct < minPct
+                isUnique := false
+                break
+        if isUnique
+            array.push(arr, value)
 
-// On uptrend, store unique lows
 if upTrend
-    add_unique_to_array(uniqueLows, low)
-
-// On downtrend, store unique highs
+    add_unique(uniqueLows, low, minDistancePct)
 if downTrend
-    add_unique_to_array(uniqueHighs, high)
+    add_unique(uniqueHighs, high, minDistancePct)
 
-// Calculate the averages of the unique lows and highs
-avgLowestLows = array.size(uniqueLows) > 0 ? array.avg(uniqueLows) : na
-avgHighestHighs = array.size(uniqueHighs) > 0 ? array.avg(uniqueHighs) : na
+array_avg(arr) =>
+    sz = array.size(arr)
+    if sz == 0
+        na
+    else
+        float s = 0.0
+        for i = 0 to sz - 1
+            s += array.get(arr, i)
+        s / sz
 
-// Plot the Supertrend
-supertrendLine = plot(upTrend ? supertrend : na, "Up Trend", color=color.green, style=plot.style_linebr)
-downTrendLine = plot(downTrend ? supertrend : na, "Down Trend", color=color.red, style=plot.style_linebr)
-bodyMiddle = plot(barstate.isfirst ? na : (open + close) / 2, "Body Middle", display=display.none)
+avgLowestLows = array_avg(uniqueLows)
+avgHighestHighs = array_avg(uniqueHighs)
 
-// Fill background colors for uptrend and downtrend
-fill(bodyMiddle, supertrendLine, title="Uptrend Background", color=color.new(color.green, 90), fillgaps=false)
-fill(bodyMiddle, downTrendLine, title="Downtrend Background", color=color.new(color.red, 90), fillgaps=false)
+plot(upTrend ? avgLowestLows : na, title="Avg Unique Lows (Uptrend)", color=color.blue, linewidth=2, style=plot.style_stepline)
+plot(downTrend ? avgHighestHighs : na, title="Avg Unique Highs (Downtrend)", color=color.orange, linewidth=2, style=plot.style_stepline)
 
-// Plot the averages of unique lows and highs
-plot(upTrend ? avgLowestLows : na, "Avg Unique Lows (Uptrend)", color=color.blue, linewidth=2)
-plot(downTrend ? avgHighestHighs : na, "Avg Unique Highs (Downtrend)", color=color.orange, linewidth=2)
+alertcondition(ta.crossover(close, HHA), title="Cross Above HHA", message="Price crossed above HHA")
+alertcondition(ta.crossunder(close, LLA), title="Cross Below LLA", message="Price crossed below LLA")
+alertcondition(not na(avgLowestLows) and ta.crossover(close, avgLowestLows), title="Cross Above Avg Lows", message="Price crossed above avg unique lows")
+alertcondition(not na(avgHighestHighs) and ta.crossunder(close, avgHighestHighs), title="Cross Below Avg Highs", message="Price crossed below avg unique highs")
 
-// === Display the latest count as a single label ===
 var label countLabel = na
-label.delete(countLabel)
+if not na(countLabel)
+    label.delete(countLabel)
 
-// Helper function to format float conditionally
-formatFloat(float value) =>
-    value > 1 ? str.tostring(value, "#.##") : str.tostring(value)
+formatFloat(value) =>
+    na(value) ? "na" : value > 1 ? str.tostring(value, "#.##") : str.tostring(value)
 
-// Build the label text using formatted values
-countText = upTrend ? "L -> " + str.tostring(array.size(uniqueLows)) + " | " + formatFloat(avgLowestLows) : downTrend ? "H -> " + str.tostring(array.size(uniqueHighs)) + " | " + formatFloat(avgHighestHighs) : ""
+countText = (upTrend and array.size(uniqueLows) > 0) ? ("L -> " + str.tostring(array.size(uniqueLows)) + " | " + formatFloat(avgLowestLows)) : (downTrend and array.size(uniqueHighs) > 0) ? ("H -> " + str.tostring(array.size(uniqueHighs)) + " | " + formatFloat(avgHighestHighs)) : ""
 
-if countText != ""
-    countLabel := label.new(x=bar_index, y=upTrend ? avgLowestLows : downTrend ? avgHighestHighs : close, text=countText, style=label.style_label_left, color=color.new(close > avgLowestLows ? color.lime : close < avgHighestHighs ? color.red : na, 100), textcolor=color.new(close > avgLowestLows ? color.lime : close < avgHighestHighs ? color.red : na, 0), size=size.tiny)
+if (countText != "")
+    yPos = (upTrend and array.size(uniqueLows) > 0) ? avgLowestLows : (downTrend and array.size(uniqueHighs) > 0 ? avgHighestHighs : close)
+    countLabel := label.new(x=bar_index, y=yPos, text=countText, style=label.style_label_left, color=color.new(color.black, 100), textcolor=color.white, size=size.tiny)
 
-//-- to God be the Glory
+//..to God be the Glory
+
